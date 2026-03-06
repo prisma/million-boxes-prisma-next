@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Million Boxes — Prisma Next Streaming Demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      color: #e0e0e0;
+      font-family: system-ui, -apple-system, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Top bar ── */
+    .topbar {
+      background: #111;
+      border-bottom: 1px solid #1a1a1a;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-shrink: 0;
+    }
+    h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.5px; }
+    .sep { width: 1px; height: 20px; background: #222; }
+
+    button {
+      padding: 6px 18px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      transition: background 0.15s;
+    }
+    button:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn-race { background: #16A394; }
+    .btn-race:hover:not(:disabled) { background: #1DB9A6; }
+    .btn-stop { background: #dc2626; display: none; }
+    .btn-stop:hover:not(:disabled) { background: #ef4444; }
+    .row-count {
+      display: flex;
+      background: #151515;
+      border: 1px solid #222;
+      border-radius: 5px;
+      overflow: hidden;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .row-count label {
+      padding: 5px 12px;
+      cursor: pointer;
+      color: #555;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .row-count input { display: none; }
+    .row-count input:checked + label { background: #16A394; color: white; }
+
+    .delay-control {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: #555;
+    }
+    .delay-control input[type="range"] { width: 60px; accent-color: #16A394; }
+    .delay-val {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 10px;
+      color: #666;
+      min-width: 30px;
+    }
+
+    /* ── Panels ── */
+    .panels {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    .panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel + .panel { border-left: 1px solid #1a1a1a; }
+
+    .panel-header {
+      padding: 8px 16px;
+      background: #0f0f0f;
+      border-bottom: 1px solid #1a1a1a;
+      flex-shrink: 0;
+    }
+    .panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-title .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #333;
+    }
+    .panel-title .dot.active { background: #34d399; animation: pulse 1s infinite; }
+    .panel-title .dot.done { background: #60a5fa; animation: none; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    .panel-stats {
+      display: flex;
+      gap: 14px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 11px;
+      flex-wrap: wrap;
+    }
+    .sl { color: #444; }
+    .sv { color: #aaa; }
+    .timing { color: #666; font-size: 10px; }
+
+    .panel-grid {
+      flex: 1;
+      overflow: auto;
+      padding: 8px;
+      background: #090909;
+    }
+    .grid {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      min-height: 100%;
+    }
+    .grid canvas {
+      display: block;
+      background: #050505;
+    }
+
+    /* ── Status bar ── */
+    .statusbar {
+      background: #111;
+      border-top: 1px solid #1a1a1a;
+      padding: 6px 20px;
+      font-size: 11px;
+      color: #444;
+      flex-shrink: 0;
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>Million Boxes</h1>
+    <div class="sep"></div>
+    <button class="btn-race" id="raceBtn" onclick="race()">Race</button>
+    <button class="btn-stop" id="stopBtn" onclick="stop()">Stop</button>
+    <div class="sep"></div>
+    <div class="row-count">
+      <input type="radio" name="rows" id="r10k" value="10000" />
+      <label for="r10k">10k</label>
+      <input type="radio" name="rows" id="r100k" value="100000" />
+      <label for="r100k">100k</label>
+      <input type="radio" name="rows" id="r500k" value="500000" />
+      <label for="r500k">500k</label>
+      <input type="radio" name="rows" id="r1m" value="1000000" checked />
+      <label for="r1m">1M</label>
+    </div>
+    <div class="delay-control">
+      <span>Delay</span>
+      <input type="range" id="delaySlider" min="0" max="50" value="0" />
+      <span class="delay-val" id="delayVal">0ms</span>
+    </div>
+  </div>
+
+  <div class="panels">
+    <!-- STREAM panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot" id="streamDot"></span>
+          STREAM <span style="color:#444;font-weight:400;text-transform:none;letter-spacing:0">/api/stream</span>
+        </div>
+        <div class="panel-stats">
+          <span><span class="sl">Rows </span><span class="sv" id="sCount">0</span><span class="sl" id="sTotal"> / 1M</span></span>
+          <span><span class="sl">Time </span><span class="sv" id="sTime">—</span></span>
+          <span><span class="sl">Rate </span><span class="sv" id="sRate">—</span></span>
+        </div>
+        <div class="panel-stats timing" id="sTiming"></div>
+      </div>
+      <div class="panel-grid">
+        <div class="grid" id="streamGrid"></div>
+      </div>
+    </div>
+
+    <!-- FETCH panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="dot" id="fetchDot"></span>
+          FETCH <span style="color:#444;font-weight:400;text-transform:none;letter-spacing:0">/api/fetch</span>
+        </div>
+        <div class="panel-stats">
+          <span><span class="sl">Rows </span><span class="sv" id="fCount">0</span><span class="sl" id="fTotal"> / 1M</span></span>
+          <span><span class="sl">Time </span><span class="sv" id="fTime">—</span></span>
+          <span><span class="sl">Rate </span><span class="sv" id="fRate">—</span></span>
+        </div>
+        <div class="panel-stats timing" id="fTiming"></div>
+      </div>
+      <div class="panel-grid">
+        <div class="grid" id="fetchGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar" id="statusbar">Ready</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const delaySlider = $("delaySlider");
+  const delayValEl = $("delayVal");
+  const raceBtn = $("raceBtn");
+  const stopBtn = $("stopBtn");
+  const FLUSH_EVERY = 2000;
+  const BOX_SIZE = 6;
+  const BOX_GAP = 1;
+  const CELL_SIZE = BOX_SIZE + BOX_GAP;
+  const TILE_ROWS = 512;
+  let abortController = null;
+
+  delaySlider.addEventListener("input", () => {
+    delayValEl.textContent = delaySlider.value + "ms";
+  });
+
+  function getRowCount() {
+    return Number(document.querySelector('input[name="rows"]:checked').value);
+  }
+
+  function formatCount(n) {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1) + "M";
+    if (n >= 1_000) return (n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1) + "k";
+    return String(n);
+  }
+
+  function setStatus(text) {
+    $("statusbar").textContent = text;
+  }
+
+  function nextFrame() {
+    return new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+
+  function getGridColumns(scroller) {
+    return Math.max(1, Math.floor((scroller.clientWidth + BOX_GAP) / CELL_SIZE));
+  }
+
+  function createGridRenderer(grid, limit) {
+    grid.innerHTML = "";
+
+    const scroller = grid.parentElement;
+    const columns = getGridColumns(scroller);
+    const totalRows = Math.ceil(limit / columns);
+    const totalWidth = columns * CELL_SIZE - BOX_GAP;
+    const totalHeight = Math.max(BOX_SIZE, totalRows * CELL_SIZE - BOX_GAP);
+    const tiles = [];
+
+    grid.style.width = totalWidth + "px";
+    grid.style.minHeight = totalHeight + "px";
+
+    for (let startRow = 0; startRow < totalRows; startRow += TILE_ROWS) {
+      const rowsInTile = Math.min(TILE_ROWS, totalRows - startRow);
+      const canvas = document.createElement("canvas");
+      const canvasHeight = Math.max(BOX_SIZE, rowsInTile * CELL_SIZE - BOX_GAP);
+
+      canvas.width = totalWidth;
+      canvas.height = canvasHeight;
+      canvas.style.width = totalWidth + "px";
+      canvas.style.height = canvasHeight + "px";
+
+      const ctx = canvas.getContext("2d", { alpha: false });
+      ctx.fillStyle = "#050505";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      tiles.push({ ctx, startRow });
+      grid.appendChild(canvas);
+    }
+
+    let index = 0;
+
+    return {
+      draw(colors) {
+        for (const color of colors) {
+          const row = Math.floor(index / columns);
+          const col = index % columns;
+          const tile = tiles[Math.floor(row / TILE_ROWS)];
+          const localRow = row - tile.startRow;
+
+          tile.ctx.fillStyle = color;
+          tile.ctx.fillRect(col * CELL_SIZE, localRow * CELL_SIZE, BOX_SIZE, BOX_SIZE);
+          index++;
+        }
+      },
+    };
+  }
+
+  async function drawFetchedText(text, renderer, countEl, progressive = true) {
+    let count = 0;
+    let start = 0;
+    let batch = [];
+
+    for (let i = 0; i < text.length; i++) {
+      if (text.charCodeAt(i) !== 10) continue;
+
+      if (i > start) {
+        batch.push(text.slice(start, i));
+        count++;
+      }
+      start = i + 1;
+
+      if (batch.length >= FLUSH_EVERY) {
+        renderer.draw(batch);
+        batch = [];
+        if (progressive) {
+          countEl.textContent = count.toLocaleString();
+          await nextFrame();
+        }
+      }
+    }
+
+    if (start < text.length) {
+      batch.push(text.slice(start));
+      count++;
+    }
+
+    if (batch.length > 0) renderer.draw(batch);
+    countEl.textContent = count.toLocaleString();
+    return count;
+  }
+
+  function stop() {
+    if (abortController) abortController.abort();
+  }
+
+  function setRunning(running) {
+    raceBtn.style.display = running ? "none" : "";
+    stopBtn.style.display = running ? "" : "none";
+  }
+
+  // ── Stream runner ──
+  async function runStream(signal, limit) {
+    const grid = $("streamGrid");
+    const countEl = $("sCount");
+    const timeEl = $("sTime");
+    const rateEl = $("sRate");
+    const dot = $("streamDot");
+    const timingEl = $("sTiming");
+
+    grid.innerHTML = "";
+    countEl.textContent = "0";
+    $("sTotal").textContent = " / " + formatCount(limit);
+    timeEl.textContent = "—";
+    rateEl.textContent = "—";
+    timingEl.textContent = "";
+    dot.className = "dot active";
+
+    const delay = Number(delaySlider.value);
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (delay > 0) params.set("delay", String(delay));
+
+    const t0 = performance.now();
+    let count = 0;
+    let colorBuf = [];
+    let tFirstByte = null;
+    const renderer = createGridRenderer(grid, limit);
+
+    const timer = setInterval(() => {
+      const s = (performance.now() - t0) / 1000;
+      timeEl.textContent = s.toFixed(1) + "s";
+      if (s > 0) rateEl.textContent = Math.round(count / s).toLocaleString() + "/s";
+    }, 200);
+
+    try {
+      const res = await fetch("/api/stream?" + params, { signal });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        if (!tFirstByte) {
+          tFirstByte = performance.now();
+          timingEl.textContent = "Query " + ((tFirstByte - t0) / 1000).toFixed(1) + "s";
+        }
+
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop();
+
+        for (const line of lines) {
+          if (!line) continue;
+          colorBuf.push(line);
+          count++;
+
+          if (count % FLUSH_EVERY === 0) {
+            renderer.draw(colorBuf);
+            colorBuf = [];
+            countEl.textContent = count.toLocaleString();
+            await nextFrame();
+          }
+        }
+      }
+
+      if (colorBuf.length > 0) renderer.draw(colorBuf);
+
+      clearInterval(timer);
+      const tDone = performance.now();
+      const elapsed = ((tDone - t0) / 1000).toFixed(1);
+      countEl.textContent = count.toLocaleString();
+      timeEl.textContent = elapsed + "s";
+      rateEl.textContent = Math.round(count / parseFloat(elapsed)).toLocaleString() + "/s";
+      dot.className = "dot done";
+
+      const queryTime = tFirstByte ? ((tFirstByte - t0) / 1000).toFixed(1) : "—";
+      const streamTime = tFirstByte ? ((tDone - tFirstByte) / 1000).toFixed(1) : "—";
+      timingEl.textContent = "Query " + queryTime + "s · Stream+Render " + streamTime + "s";
+    } catch (err) {
+      clearInterval(timer);
+      dot.className = "dot";
+      if (err.name !== "AbortError") throw err;
+    }
+  }
+
+  // ── Fetch runner ──
+  async function runFetch(signal, limit) {
+    const grid = $("fetchGrid");
+    const countEl = $("fCount");
+    const timeEl = $("fTime");
+    const rateEl = $("fRate");
+    const dot = $("fetchDot");
+    const timingEl = $("fTiming");
+
+    grid.innerHTML = "";
+    countEl.textContent = "0";
+    $("fTotal").textContent = " / " + formatCount(limit);
+    timeEl.textContent = "—";
+    rateEl.textContent = "—";
+    timingEl.textContent = "";
+    dot.className = "dot active";
+
+    const t0 = performance.now();
+
+    const timer = setInterval(() => {
+      const s = (performance.now() - t0) / 1000;
+      timeEl.textContent = s.toFixed(1) + "s";
+    }, 200);
+
+    try {
+      const res = await fetch("/api/fetch?limit=" + limit, { signal });
+      const text = await res.text();
+      const tData = performance.now();
+
+      timingEl.textContent = "Fetch " + ((tData - t0) / 1000).toFixed(1) + "s";
+
+      const renderer = createGridRenderer(grid, limit);
+      const count = await drawFetchedText(text, renderer, countEl, false);
+      const tDone = performance.now();
+
+      clearInterval(timer);
+      const elapsed = ((tDone - t0) / 1000).toFixed(1);
+      countEl.textContent = count.toLocaleString();
+      timeEl.textContent = elapsed + "s";
+      rateEl.textContent = Math.round(count / parseFloat(elapsed)).toLocaleString() + "/s";
+      dot.className = "dot done";
+
+      const fetchTime = ((tData - t0) / 1000).toFixed(1);
+      const renderTime = ((tDone - tData) / 1000).toFixed(1);
+      timingEl.textContent = "Fetch " + fetchTime + "s · Render " + renderTime + "s";
+    } catch (err) {
+      clearInterval(timer);
+      dot.className = "dot";
+      if (err.name !== "AbortError") throw err;
+    }
+  }
+
+  // ── Race ──
+  async function race() {
+    abortController = new AbortController();
+    const signal = abortController.signal;
+    const limit = getRowCount();
+
+    setRunning(true);
+    setStatus("Racing — " + formatCount(limit) + " rows…");
+
+    await Promise.allSettled([
+      runStream(signal, limit),
+      runFetch(signal, limit),
+    ]);
+
+    setRunning(false);
+    setStatus("Done");
+    abortController = null;
+  }
+
+</script>
+</body>
+</html>

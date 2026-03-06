@@ -1,0 +1,31 @@
+{
+  "name": "million-boxes",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "db:emit": "prisma-next contract emit --config prisma-next.config.ts",
+    "db:init": "bun run db:emit && prisma-next db init --config prisma-next.config.ts",
+    "db:push": "prisma-next db push --config prisma-next.config.ts",
+    "seed": "bun run src/seed.ts",
+    "bench": "bun run src/bench.ts",
+    "dev": "bun run --hot src/server.ts",
+    "start": "bun run src/server.ts"
+  },
+  "dependencies": {
+    "@prisma-next/adapter-postgres": "dev",
+    "@prisma-next/driver-postgres": "dev",
+    "@prisma-next/postgres": "dev",
+    "@prisma-next/sql-contract": "dev",
+    "@prisma-next/sql-orm-client": "dev",
+    "@prisma-next/sql-runtime": "dev",
+    "@prisma-next/target-postgres": "dev",
+    "dotenv": "^17.2.2"
+  },
+  "devDependencies": {
+    "@prisma-next/cli": "dev",
+    "@prisma-next/family-sql": "dev",
+    "@prisma-next/sql-contract-ts": "dev",
+    "@types/bun": "^1.3.9",
+    "typescript": "^5"
+  }
+}
