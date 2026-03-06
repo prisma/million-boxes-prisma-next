@@ -14,10 +14,10 @@ type Result = {
   label: string;
   rows: number;
   bytes: number;
-  headersMs: number | null;
-  firstDataMs: number | null;
+  responseStartMs: number | null;
+  firstRowMs: number | null;
   totalMs: number;
-  chunks: number | null;
+  observedChunks: number | null;
   notes: string;
 };
 
@@ -86,16 +86,26 @@ function formatMiBPerSecond(bytes: number, totalMs: number) {
 }
 
 function renderTable(results: Result[]) {
-  const headers = ["Mode", "Rows", "Headers", "First", "Total", "Rows/s", "MiB/s", "Chunks", "Notes"];
+  const headers = [
+    "Mode",
+    "Rows",
+    "Resp",
+    "First row",
+    "Total",
+    "Rows/s",
+    "MiB/s",
+    "Obs chunks",
+    "Notes",
+  ];
   const rows = results.map((result) => [
     result.label,
     result.rows.toLocaleString(),
-    formatDuration(result.headersMs),
-    formatDuration(result.firstDataMs),
+    formatDuration(result.responseStartMs),
+    formatDuration(result.firstRowMs),
     formatDuration(result.totalMs),
     formatRowsPerSecond(result.rows, result.totalMs),
     formatMiBPerSecond(result.bytes, result.totalMs),
-    result.chunks == null ? "-" : result.chunks.toLocaleString(),
+    result.observedChunks == null ? "-" : result.observedChunks.toLocaleString(),
     result.notes,
   ]);
 
@@ -111,25 +121,34 @@ function renderTable(results: Result[]) {
   for (const row of rows) console.log(printRow(row));
 }
 
+function printLegend() {
+  console.log("");
+  console.log("Resp = time until fetch() resolved and response headers were available");
+  console.log("First row = time until the benchmark could read one complete newline-delimited row");
+  console.log("Obs chunks = chunks observed by the client reader, not guaranteed server-side yields");
+}
+
 async function benchHttpStream(baseUrl: string, limit: number): Promise<Result> {
   const t0 = performance.now();
   const res = await fetch(`${baseUrl}/api/stream?limit=${limit}`);
-  const headersMs = performance.now() - t0;
+  const responseStartMs = performance.now() - t0;
 
   if (!res.body) throw new Error("Stream response has no body");
 
   const reader = res.body.getReader();
-  let firstDataMs: number | null = null;
+  let firstRowMs: number | null = null;
   let rows = 0;
   let bytes = 0;
-  let chunks = 0;
+  let observedChunks = 0;
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    chunks++;
-    if (firstDataMs == null) firstDataMs = performance.now() - t0;
+    observedChunks++;
+    if (firstRowMs == null && value.includes(10)) {
+      firstRowMs = performance.now() - t0;
+    }
     rows += countNewlines(value);
     bytes += value.byteLength;
   }
@@ -138,42 +157,41 @@ async function benchHttpStream(baseUrl: string, limit: number): Promise<Result> 
     label: "http-stream",
     rows,
     bytes,
-    headersMs,
-    firstDataMs,
+    responseStartMs,
+    firstRowMs,
     totalMs: performance.now() - t0,
-    chunks,
-    notes: "stream response",
+    observedChunks,
+    notes: "client reads response incrementally",
   };
 }
 
 async function benchHttpFetch(baseUrl: string, limit: number): Promise<Result> {
   const t0 = performance.now();
   const res = await fetch(`${baseUrl}/api/fetch?limit=${limit}`);
-  const headersMs = performance.now() - t0;
+  const responseStartMs = performance.now() - t0;
   const body = new Uint8Array(await res.arrayBuffer());
+  const totalMs = performance.now() - t0;
 
   return {
     label: "http-fetch",
     rows: countNewlines(body),
     bytes: body.byteLength,
-    headersMs,
-    firstDataMs: null,
-    totalMs: performance.now() - t0,
-    chunks: null,
-    notes: "buffer full body, then parse",
+    responseStartMs,
+    firstRowMs: totalMs,
+    totalMs,
+    observedChunks: null,
+    notes: "client buffers full body before first row is usable",
   };
 }
 
 function printSummary(results: Result[]) {
   const fastestTotal = [...results].sort((a, b) => a.totalMs - b.totalMs)[0];
-  const fastestFirst = results
-    .filter((result) => result.firstDataMs != null)
-    .sort((a, b) => (a.firstDataMs! - b.firstDataMs!))[0];
+  const fastestFirstRow = [...results].sort((a, b) => (a.firstRowMs ?? Infinity) - (b.firstRowMs ?? Infinity))[0];
 
   console.log("");
   console.log(`Fastest total: ${fastestTotal.label} in ${formatDuration(fastestTotal.totalMs)}`);
-  if (fastestFirst) {
-    console.log(`Fastest first data: ${fastestFirst.label} in ${formatDuration(fastestFirst.firstDataMs)}`);
+  if (fastestFirstRow.firstRowMs != null) {
+    console.log(`Fastest first usable row: ${fastestFirstRow.label} in ${formatDuration(fastestFirstRow.firstRowMs)}`);
   }
 }
 
@@ -198,10 +216,11 @@ async function main() {
     }
 
     renderTable(results);
+    printLegend();
     printSummary(results);
   } finally {
     await server.stop(true);
-    await (db as { close?: () => Promise<void> }).close?.();
+    await db.runtime().close();
   }
 }
 
